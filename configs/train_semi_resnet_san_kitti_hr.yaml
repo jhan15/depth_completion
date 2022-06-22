@@ -1,24 +1,34 @@
+checkpoint:
+    filepath: '/save/checkpoints'
+    save_top_k: 10
+    monitor: 'abs_rel_pp'
+    mode: 'min'
+tensorboard:
+    log_dir: '/save/logs'
 arch:
+    max_epochs: 50
     validate_first: True
 model:
     name: 'SemiSupCompletionModel'
+    checkpoint_path: '/save/models/semi_resnet_kitti_hr.ckpt'
     loss:
         supervised_method: 'sparse-silog'
         supervised_num_scales: 1
         supervised_loss_weight: 1.0
+        eval_self_sup_loss: True
     optimizer:
-        name: 'Adam'
+        name: 'AdamW'
         depth:
             lr: 0.0001
-        pose:
-            lr: 0.0001
+            weight_decay: 0.01
     scheduler:
         name: 'StepLR'
-        step_size: 30
+        step_size: 10
         gamma: 0.5
     depth_net:
-        name: 'PackNetSAN01'
-        version: '1A'
+        name: 'DepthResNetSAN'
+        version: '18pt'
+        grad_image_encoder: False
         dropout: 0.5
     params:
         crop: 'garg'
@@ -30,21 +40,29 @@ datasets:
         crop_train_borders: (-352, 0, 0.5, 1216)
         crop_eval_borders: (-352, 0, 0.5, 1216)
     train:
-        batch_size: 1
+        batch_size: 4
         dataset: ['KITTI']
         path: ['/data/datasets/KITTI_raw']
         split: ['data_splits/eigen_zhou_files.txt']
         input_depth_type: ['velodyne']
         depth_type: ['groundtruth']
-        repeat: [2]
     validation:
+        back_context: 1
+        forward_context: 1
+        stereo_context: True
         dataset: ['KITTI']
         path: ['/data/datasets/KITTI_raw']
-        split: ['data_splits/eigen_test_files.txt',
+        split: ['data_splits/eigen_val_files.txt',
+                'data_splits/eigen_val_files.txt',
+                'data_splits/eigen_test_files.txt',
                 'data_splits/eigen_test_files.txt']
-        input_depth_type: ['velodyne','']
-        depth_type: ['groundtruth','groundtruth']
+        input_depth_type: ['velodyne','','velodyne','']
+        depth_type: ['groundtruth','groundtruth',
+                     'groundtruth','groundtruth']
     test:
+        back_context: 1
+        forward_context: 1
+        stereo_context: True
         dataset: ['KITTI']
         path: ['/data/datasets/KITTI_raw']
         split: ['data_splits/eigen_test_files.txt',

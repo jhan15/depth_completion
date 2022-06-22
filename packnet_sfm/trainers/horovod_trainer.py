@@ -53,9 +53,9 @@ class HorovodTrainer(BaseTrainer):
         val_dataloaders = module.val_dataloader()
 
         # Validate before training if requested
-        if self.validate_first:
+        if self.validate_first and module.current_epoch == 0:
             validation_output = self.validate(val_dataloaders, module)
-            self.check_and_save(module, validation_output)
+            # self.check_and_save(module, validation_output) # No need to save a validation-first model
 
         # Epoch loop
         for epoch in range(module.current_epoch, self.max_epochs):

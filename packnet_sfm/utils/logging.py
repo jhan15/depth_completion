@@ -54,6 +54,9 @@ def prepare_dataset_prefix(config, dataset_idx):
     # If depth type is available
     if config.depth_type[dataset_idx] != '':
         prefix += '-{}'.format(config.depth_type[dataset_idx])
+    # If input depth type is available
+    if config.input_depth_type[dataset_idx] != '':
+        prefix += '-{}'.format(config.input_depth_type[dataset_idx])
     # If we are using specific cameras
     if len(config.cameras[dataset_idx]) == 1:  # only allows single cameras
         prefix += '-{}'.format(config.cameras[dataset_idx][0])

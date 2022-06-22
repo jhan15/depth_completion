@@ -181,5 +181,5 @@ class PackNet01(nn.Module):
             }
         else:
             return {
-                'inv_depths': disp1,
+                'inv_depths': [disp1],
             }

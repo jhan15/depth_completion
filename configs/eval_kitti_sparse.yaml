@@ -1,0 +1,26 @@
+model:
+    name: 'SemiSupCompletionModel'
+    return_logs: True
+    loss:
+        eval_self_sup_loss: True
+datasets:
+    test:
+        back_context: 1
+        forward_context: 1
+        stereo_context: True
+        dataset: ['KITTI']
+        path: ['/data/datasets/KITTI_raw']
+        split: ['data_splits/eigen_test_files.txt',
+                'data_splits/eigen_test_files.txt']
+        input_depth_type: ['velodyne','']
+        depth_type: ['velodyne','velodyne']
+save:
+    folder: '/save/eval'
+    depth:
+        rgb: False
+        viz: False
+        npz: True
+        png: False
+        dgt: False
+        dem: False
+        pem: False

@@ -19,10 +19,14 @@ class PoseResNet(nn.Module):
         X is the number of residual layers [18, 34, 50] and
         Y is an optional ImageNet pretrained flag added by the "pt" suffix
         Example: "18pt" initializes a pretrained ResNet18, and "34" initializes a ResNet34 from scratch
+    grad_encoder : bool
+        Requires grad for encoder or not
+    grad_decoder : bool
+        Requires grad for decoder or not
     kwargs : dict
         Extra parameters
     """
-    def __init__(self, version=None, **kwargs):
+    def __init__(self, version=None, grad_encoder=True, grad_decoder=True, **kwargs):
         super().__init__()
         assert version is not None, "PoseResNet needs a version"
 
@@ -32,6 +36,12 @@ class PoseResNet(nn.Module):
 
         self.encoder = ResnetEncoder(num_layers=num_layers, pretrained=pretrained, num_input_images=2)
         self.decoder = PoseDecoder(self.encoder.num_ch_enc, num_input_features=1, num_frames_to_predict_for=2)
+
+        # Requires grads or not
+        for param in self.encoder.parameters():
+            param.requires_grad = grad_encoder
+        for param in self.decoder.parameters():
+            param.requires_grad = grad_decoder
 
     def forward(self, target_image, ref_imgs):
         """

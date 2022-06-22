@@ -17,10 +17,12 @@ class SemiSupModel(SelfSupModel):
     ----------
     supervised_loss_weight : float
         Weight for the supervised loss
+    eval_self_sup_loss : bool
+        True if calculate self-supervised loss when not training
     kwargs : dict
         Extra parameters
     """
-    def __init__(self, supervised_loss_weight=0.9, **kwargs):
+    def __init__(self, supervised_loss_weight=0.9, eval_self_sup_loss=False, **kwargs):
         # Initializes SelfSupModel
         super().__init__(**kwargs)
         # If supervision weight is 0.0, use SelfSupModel directly
@@ -35,6 +37,8 @@ class SemiSupModel(SelfSupModel):
         # GT depth is only required if there is supervision
         if self.supervised_loss_weight > 0:
             self._train_requirements.append('gt_depth')
+        
+        self.eval_self_sup_loss = eval_self_sup_loss
 
     @property
     def logs(self):
@@ -89,8 +93,12 @@ class SemiSupModel(SelfSupModel):
             for logging and downstream usage.
         """
         if not self.training:
-            # If not training, no need for self-supervised loss
-            return SfmModel.forward(self, batch)
+            if self.eval_self_sup_loss:
+                # Calculate photometric loss as an additional evaluation metric
+                return SelfSupModel.forward(self, batch, eval_loss=True, return_logs=return_logs)
+            else:
+                # Otherwise, no need to calculate any loss as a metric
+                return SfmModel.forward(self, batch)
         else:
             if self.supervised_loss_weight == 1.:
                 # If no self-supervision, no need to calculate loss
@@ -98,7 +106,7 @@ class SemiSupModel(SelfSupModel):
                 loss = torch.tensor([0.]).type_as(batch['rgb'])
             else:
                 # Otherwise, calculate and weight self-supervised loss
-                self_sup_output = SelfSupModel.forward(self, batch)
+                self_sup_output = SelfSupModel.forward(self, batch, return_logs=return_logs)
                 loss = (1.0 - self.supervised_loss_weight) * self_sup_output['loss']
             # Calculate and weight supervised loss
             sup_output = self.supervised_loss(

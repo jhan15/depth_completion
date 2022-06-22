@@ -58,6 +58,8 @@ class KITTIDataset(Dataset):
         Path to the dataset
     file_list : str
         Split file, with paths to the images to be used
+    batch_size : int
+        Size of a batch to process
     train : bool
         True if the dataset will be used for training
     data_transform : Function
@@ -73,9 +75,9 @@ class KITTIDataset(Dataset):
     strides : tuple
         List of context strides
     """
-    def __init__(self, root_dir, file_list, train=True,
-                 data_transform=None, depth_type=None, input_depth_type=None,
-                 with_pose=False, back_context=0, forward_context=0, strides=(1,)):
+    def __init__(self, root_dir, file_list, batch_size, excluded_folder=None, train=True,
+                 data_transform=None, depth_type=None, input_depth_type=None, with_pose=False,
+                 with_stereo=False, back_context=0, forward_context=0, strides=(1,)):
         # Assertions
         backward_context = back_context
         assert backward_context >= 0 and forward_context >= 0, 'Invalid contexts'
@@ -84,10 +86,14 @@ class KITTIDataset(Dataset):
         self.backward_context_paths = []
         self.forward_context = forward_context
         self.forward_context_paths = []
+        self.stereo_context_paths = []
 
+        # TODO: optimize data loading logic for M, S, MS supervision
         self.with_context = (backward_context != 0 or forward_context != 0)
         self.split = file_list.split('/')[-1].split('.')[0]
 
+        self.batch_size = batch_size
+        self.excluded_folder = excluded_folder
         self.train = train
         self.root_dir = root_dir
         self.data_transform = data_transform
@@ -95,6 +101,7 @@ class KITTIDataset(Dataset):
         self.depth_type = depth_type
         self.with_depth = depth_type is not '' and depth_type is not None
         self.with_pose = with_pose
+        self.with_stereo = with_stereo
 
         self.input_depth_type = input_depth_type
         self.with_input_depth = input_depth_type is not '' and input_depth_type is not None
@@ -112,6 +119,8 @@ class KITTIDataset(Dataset):
         self.paths = []
         # Get file list from data
         for i, fname in enumerate(data):
+            if self.excluded_folder and self.excluded_folder in fname:
+                continue
             path = os.path.join(self.root_dir, fname.split()[0])
             add_flag = True
             if add_flag and self.with_input_depth:
@@ -120,7 +129,7 @@ class KITTIDataset(Dataset):
                 add_flag = depth is not None and os.path.exists(depth)
             if add_flag and self.with_depth:
                 # Check if depth file exists
-                depth = self._get_depth_file(path, self.depth_type)
+                depth = self._get_depth_file(path, PNG_DEPTH_DATASETS[0])
                 add_flag = depth is not None and os.path.exists(depth)
             if add_flag:
                 self.paths.append(path)
@@ -138,6 +147,25 @@ class KITTIDataset(Dataset):
                         self.forward_context_paths.append(forward_context_idxs)
                         self.backward_context_paths.append(backward_context_idxs[::-1])
             self.paths = paths_with_context
+
+            # A temporary solution for an unresolved Pytorch 'merge_sort' issue when training with
+            # SPARSE LiDAR gt and the training samples can not be evenly divided by the batch size
+            remainder = len(self.paths) % self.batch_size
+            if self.train and self.with_input_depth and self.depth_type == 'velodyne' and remainder != 0:
+                self.paths += self.paths[remainder - self.batch_size:]
+                self.forward_context_paths += self.forward_context_paths[remainder - self.batch_size:]
+                self.backward_context_paths += self.backward_context_paths[remainder - self.batch_size:]
+            
+            # If using stereo context, use the filtered file list
+            # so that each target frame contains contexts of [s, -1, +1]
+            if self.with_stereo:
+                stereo_folders = tuple(IMAGE_FOLDER.values())
+                for file in self.paths:
+                    # Get the stereo context path
+                    sample_folder_id = 0 if stereo_folders[0] in file else 1
+                    stereo_context_path = file.replace(stereo_folders[  sample_folder_id],
+                                                       stereo_folders[1-sample_folder_id])
+                    self.stereo_context_paths.append(stereo_context_path)
 
 ########################################################################################################################
 
@@ -190,6 +218,12 @@ class KITTIDataset(Dataset):
                 if depth_type not in PNG_DEPTH_DATASETS:
                     depth_file = depth_file.replace('png', 'npz')
                 return depth_file
+    
+    @staticmethod
+    def _subsititute_depth(sparse_depth, semi_dense_depth):
+        """Get sparse depth gt from semi-dense depth gt."""
+        semi_dense_depth[sparse_depth <= 0] = -1.
+        return semi_dense_depth
 
     def _get_sample_context(self, sample_name,
                             backward_context, forward_context, stride=1):
@@ -280,7 +314,7 @@ class KITTIDataset(Dataset):
 ########################################################################################################################
 
     def _get_imu2cam_transform(self, image_file):
-        """Gets the transformation between IMU an camera from an image file"""
+        """Gets the transformation between IMU and camera from an image file"""
         parent_folder = self._get_parent_folder(image_file)
         if image_file in self.imu2velo_calib_cache:
             return self.imu2velo_calib_cache[image_file]
@@ -343,6 +377,21 @@ class KITTIDataset(Dataset):
         # Cache and return pose
         self.pose_cache[image_file] = odo_pose
         return odo_pose
+    
+    @staticmethod
+    def _get_stereo_pose(image_file, calib_data):
+        """Get relative pose for image_file w.r.t. its stereo pair."""
+        # Get camera pose
+        pose_l = transform_from_rot_trans(calib_data['R_02'], calib_data['T_02'])
+        pose_r = transform_from_rot_trans(calib_data['R_03'], calib_data['T_03'])
+        # Get rectifying rotation matrix
+        R_rect_l = transform_from_rot_trans(calib_data['R_rect_02'], np.zeros(3))
+        R_rect_r = transform_from_rot_trans(calib_data['R_rect_03'], np.zeros(3))
+
+        if IMAGE_FOLDER['left'] in image_file:
+            return (R_rect_l @ pose_l @ invert_pose_numpy(R_rect_r @ pose_r)).astype(np.float32)
+        else:
+            return (R_rect_r @ pose_r @ invert_pose_numpy(R_rect_l @ pose_l)).astype(np.float32)
 
 ########################################################################################################################
 
@@ -378,10 +427,21 @@ class KITTIDataset(Dataset):
 
         # Add depth information if requested
         if self.with_depth:
-            sample.update({
-                'depth': self._read_depth(self._get_depth_file(
-                    self.paths[idx], self.depth_type)),
-            })
+            # When using sparse gt, get it from the semi-dense gt by masking
+            if self.depth_type not in PNG_DEPTH_DATASETS:
+                sample.update({
+                    'depth': self._subsititute_depth(
+                        self._read_depth(self._get_depth_file(
+                            self.paths[idx], self.depth_type)),
+                        self._read_depth(self._get_depth_file(
+                            self.paths[idx], PNG_DEPTH_DATASETS[0]))),
+                })
+            # When using semi-dense gt, use as it is
+            else:
+                sample.update({
+                    'depth': self._read_depth(self._get_depth_file(
+                        self.paths[idx], self.depth_type)),
+                })
 
         # Add input depth information if requested
         if self.with_input_depth:
@@ -409,6 +469,24 @@ class KITTIDataset(Dataset):
                                       for context_pose in image_context_pose]
                 sample.update({
                     'pose_context': image_context_pose
+                })
+            # Add stereo context images, intrinsics and poses
+            if self.with_stereo:
+                # image
+                stereo_image_context = load_image(self.stereo_context_paths[idx])
+                # intrinsics and pose
+                parent_folder = self._get_parent_folder(self.stereo_context_paths[idx])
+                if parent_folder in self.calibration_cache:
+                    c_data = self.calibration_cache[parent_folder]
+                else:
+                    c_data = self._read_raw_calib_file(parent_folder)
+                    self.calibration_cache[parent_folder] = c_data
+                stereo_intrinsics = self._get_intrinsics(self.stereo_context_paths[idx], c_data)
+                stereo_pose_context = self._get_stereo_pose(self.stereo_context_paths[idx], c_data)
+                sample.update({
+                    'stereo_rgb_context': stereo_image_context,
+                    'stereo_intrinsics': stereo_intrinsics,
+                    'stereo_pose_context': stereo_pose_context
                 })
 
         # Apply transformations

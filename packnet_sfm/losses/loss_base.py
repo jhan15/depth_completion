@@ -1,6 +1,7 @@
 # Copyright 2020 Toyota Research Institute.  All rights reserved.
 
 import numpy as np
+import torch
 import torch.nn as nn
 from packnet_sfm.utils.types import is_list
 
@@ -63,6 +64,19 @@ class LossBase(nn.Module):
     def logs(self):
         """Return logs."""
         return self._logs
+    
+    def add_log(self, key, val):
+        """Add a new log value to the dictionary"""
+        def detach(data):
+            if isinstance(data, torch.Tensor):
+                return data.detach()
+            elif isinstance(data, list):
+                return [detach(x) for x in data]
+            elif isinstance(data, dict):
+                return {k: detach(v) for k, v in data.items()}
+            else:
+                return data
+        self._logs[key] = detach(val)
 
     @property
     def metrics(self):

@@ -123,7 +123,7 @@ def resize_sample_image_and_intrinsics(sample, shape,
     (out_h, out_w) = shape
     # Scale intrinsics
     for key in filter_dict(sample, [
-        'intrinsics'
+        'intrinsics', 'stereo_intrinsics'
     ]):
         intrinsics = np.copy(sample[key])
         intrinsics[0] *= out_w / orig_w
@@ -131,7 +131,7 @@ def resize_sample_image_and_intrinsics(sample, shape,
         sample[key] = intrinsics
     # Scale images
     for key in filter_dict(sample, [
-        'rgb', 'rgb_original',
+        'rgb', 'rgb_original', 'stereo_rgb_context', 'stereo_rgb_context_original'
     ]):
         sample[key] = image_transform(sample[key])
     # Scale context images
@@ -202,6 +202,7 @@ def to_tensor_sample(sample, tensor_type='torch.FloatTensor'):
     # Convert single items
     for key in filter_dict(sample, [
         'rgb', 'rgb_original', 'depth', 'input_depth',
+        'stereo_rgb_context', 'stereo_rgb_context_original'
     ]):
         sample[key] = transform(sample[key]).type(tensor_type)
     # Convert lists
@@ -230,7 +231,7 @@ def duplicate_sample(sample):
     """
     # Duplicate single items
     for key in filter_dict(sample, [
-        'rgb'
+        'rgb', 'stereo_rgb_context'
     ]):
         sample['{}_original'.format(key)] = sample[key].copy()
     # Duplicate lists
@@ -271,7 +272,7 @@ def colorjitter_sample(sample, parameters, prob=1.0):
             matrix = None
         # Jitter single items
         for key in filter_dict(sample, [
-            'rgb'
+            'rgb', 'stereo_rgb_context'
         ]):
             sample[key] = color_jitter_transform(sample[key])
             if matrix is not None:  # If applying color transformation
@@ -417,7 +418,7 @@ def crop_sample_input(sample, borders):
     """
     # Crop intrinsics
     for key in filter_dict(sample, [
-        'intrinsics'
+        'intrinsics', 'stereo_intrinsics'
     ]):
         # Create copy of full intrinsics
         if key + '_full' not in sample.keys():
@@ -426,6 +427,7 @@ def crop_sample_input(sample, borders):
     # Crop images
     for key in filter_dict(sample, [
         'rgb', 'rgb_original', 'warped_rgb',
+        'stereo_rgb_context', 'stereo_rgb_context_original'
     ]):
         sample[key] = crop_image(sample[key], borders)
     # Crop context images

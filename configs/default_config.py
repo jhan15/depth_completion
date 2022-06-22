@@ -37,6 +37,9 @@ cfg.save.depth.rgb = True               # Flag for saving rgb images
 cfg.save.depth.viz = True               # Flag for saving inverse depth map visualization
 cfg.save.depth.npz = True               # Flag for saving numpy depth maps
 cfg.save.depth.png = True               # Flag for saving png depth maps
+cfg.save.depth.dgt = True               # Flag for saving depth ground truth
+cfg.save.depth.dem = True               # Flag for saving depth error map
+cfg.save.depth.pem = True               # Flag for saving photometric error map
 ########################################################################################################################
 ### WANDB
 ########################################################################################################################
@@ -48,11 +51,18 @@ cfg.wandb.entity = os.environ.get("WANDB_ENTITY", "")    # Wandb entity
 cfg.wandb.tags = []                                      # Wandb tags
 cfg.wandb.dir = ''                                       # Wandb save folder
 ########################################################################################################################
+### TENSORBOARD
+########################################################################################################################
+cfg.tensorboard = CN()
+cfg.tensorboard.log_dir = ''
+########################################################################################################################
 ### MODEL
 ########################################################################################################################
 cfg.model = CN()
 cfg.model.name = ''                         # Training model
 cfg.model.checkpoint_path = ''              # Checkpoint path for model saving
+cfg.model.print_n_params = False            # Print model parameter statistics
+cfg.model.return_logs = False               # Flag to store logs during training
 ########################################################################################################################
 ### MODEL.OPTIMIZER
 ########################################################################################################################
@@ -60,7 +70,7 @@ cfg.model.optimizer = CN()
 cfg.model.optimizer.name = 'Adam'               # Optimizer name
 cfg.model.optimizer.depth = CN()
 cfg.model.optimizer.depth.lr = 0.0002           # Depth learning rate
-cfg.model.optimizer.depth.weight_decay = 0.0    # Dept weight decay
+cfg.model.optimizer.depth.weight_decay = 0.0    # Depth weight decay
 cfg.model.optimizer.pose = CN()
 cfg.model.optimizer.pose.lr = 0.0002            # Pose learning rate
 cfg.model.optimizer.pose.weight_decay = 0.0     # Pose weight decay
@@ -85,6 +95,7 @@ cfg.model.params.scale_output = 'resize'  # Depth resizing function
 ########################################################################################################################
 cfg.model.loss = CN()
 #
+cfg.model.loss.self_sup_signal = 'M'            # Self-supervision signal
 cfg.model.loss.num_scales = 4                   # Number of inverse depth scales to use
 cfg.model.loss.progressive_scaling = 0.0        # Training percentage to decay number of scales
 cfg.model.loss.flip_lr_prob = 0.5               # Probablity of horizontal flippping
@@ -107,14 +118,21 @@ cfg.model.loss.velocity_loss_weight = 0.1       # Velocity supervision loss weig
 cfg.model.loss.supervised_method = 'sparse-l1'  # Method for depth supervision
 cfg.model.loss.supervised_num_scales = 4        # Number of scales for supervised learning
 cfg.model.loss.supervised_loss_weight = 0.9     # Supervised loss weight
+cfg.model.loss.weight_rgbd = 1.0                # Depth completion loss weight
+cfg.model.loss.add_fusion_loss = False          # Add fusion loss between rgb and rgbd features
+cfg.model.loss.eval_self_sup_loss = False       # Evaluate self-supervised loss
 ########################################################################################################################
 ### MODEL.DEPTH_NET
 ########################################################################################################################
 cfg.model.depth_net = CN()
-cfg.model.depth_net.name = ''               # Depth network name
-cfg.model.depth_net.checkpoint_path = ''    # Depth checkpoint filepath
-cfg.model.depth_net.version = ''            # Depth network version
-cfg.model.depth_net.dropout = 0.0           # Depth network dropout
+cfg.model.depth_net.name = ''                   # Depth network name
+cfg.model.depth_net.checkpoint_path = ''        # Depth checkpoint filepath
+cfg.model.depth_net.version = ''                # Depth network version
+cfg.model.depth_net.grad_image_encoder = True   # Requires grad flag of image encoder
+cfg.model.depth_net.grad_image_decoder = True   # Requires grad flag of image decoder
+cfg.model.depth_net.grad_depth_encoder = True   # Requires grad flag of depth encoder
+cfg.model.depth_net.scale_output = True         # Scale the inverse depth output
+cfg.model.depth_net.dropout = 0.0               # Depth network dropout
 ########################################################################################################################
 ### MODEL.POSE_NET
 ########################################################################################################################
@@ -122,6 +140,8 @@ cfg.model.pose_net = CN()
 cfg.model.pose_net.name = ''                # Pose network name
 cfg.model.pose_net.checkpoint_path = ''     # Pose checkpoint filepath
 cfg.model.pose_net.version = ''             # Pose network version
+cfg.model.pose_net.grad_encoder = True      # Requires grad flag of pose encoder
+cfg.model.pose_net.grad_decoder = True      # Requires grad flag of pose decoder
 cfg.model.pose_net.dropout = 0.0            # Pose network dropout
 ########################################################################################################################
 ### DATASETS
@@ -140,9 +160,10 @@ cfg.datasets.augmentation.crop_eval_borders = ()                # Crop evaluatio
 ########################################################################################################################
 cfg.datasets.train = CN()
 cfg.datasets.train.batch_size = 8                   # Training batch size
-cfg.datasets.train.num_workers = 16                 # Training number of workers
+cfg.datasets.train.num_workers = 12                 # Training number of workers
 cfg.datasets.train.back_context = 1                 # Training backward context
 cfg.datasets.train.forward_context = 1              # Training forward context
+cfg.datasets.train.stereo_context = False           # Training stereo context
 cfg.datasets.train.dataset = []                     # Training dataset
 cfg.datasets.train.path = []                        # Training data path
 cfg.datasets.train.split = []                       # Training split
@@ -151,6 +172,7 @@ cfg.datasets.train.input_depth_type = ['']          # Training input depth type
 cfg.datasets.train.cameras = [[]]                   # Training cameras (double list, one for each dataset)
 cfg.datasets.train.repeat = [1]                     # Number of times training dataset is repeated per epoch
 cfg.datasets.train.num_logs = 5                     # Number of training images to log
+cfg.datasets.train.excluded_folder = ''             # Folder to be excluded from training
 ########################################################################################################################
 ### DATASETS.VALIDATION
 ########################################################################################################################
@@ -159,6 +181,7 @@ cfg.datasets.validation.batch_size = 1              # Validation batch size
 cfg.datasets.validation.num_workers = 8             # Validation number of workers
 cfg.datasets.validation.back_context = 0            # Validation backward context
 cfg.datasets.validation.forward_context = 0         # Validation forward contxt
+cfg.datasets.validation.stereo_context = False      # Validation stereo context
 cfg.datasets.validation.dataset = []                # Validation dataset
 cfg.datasets.validation.path = []                   # Validation data path
 cfg.datasets.validation.split = []                  # Validation split
@@ -166,6 +189,7 @@ cfg.datasets.validation.depth_type = ['']           # Validation depth type
 cfg.datasets.validation.input_depth_type = ['']     # Validation input depth type
 cfg.datasets.validation.cameras = [[]]              # Validation cameras (double list, one for each dataset)
 cfg.datasets.validation.num_logs = 5                # Number of validation images to log
+cfg.datasets.validation.excluded_folder = ''        # Folder to be excluded from validation
 ########################################################################################################################
 ### DATASETS.TEST
 ########################################################################################################################
@@ -174,6 +198,7 @@ cfg.datasets.test.batch_size = 1                    # Test batch size
 cfg.datasets.test.num_workers = 8                   # Test number of workers
 cfg.datasets.test.back_context = 0                  # Test backward context
 cfg.datasets.test.forward_context = 0               # Test forward context
+cfg.datasets.test.stereo_context = False            # Test stereo context
 cfg.datasets.test.dataset = []                      # Test dataset
 cfg.datasets.test.path = []                         # Test data path
 cfg.datasets.test.split = []                        # Test split
@@ -181,6 +206,7 @@ cfg.datasets.test.depth_type = ['']                 # Test depth type
 cfg.datasets.test.input_depth_type = ['']           # Test input depth type
 cfg.datasets.test.cameras = [[]]                    # Test cameras (double list, one for each dataset)
 cfg.datasets.test.num_logs = 5                      # Number of test images to log
+cfg.datasets.test.excluded_folder = ''              # Folder to be excluded from test
 ########################################################################################################################
 ### THESE SHOULD NOT BE CHANGED
 ########################################################################################################################

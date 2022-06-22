@@ -104,6 +104,13 @@ def set_checkpoint(config):
     return config.checkpoint
 
 
+def set_tensorboard(config):
+    if config.tensorboard.log_dir is not '':
+        config.tensorboard.log_dir = os.path.join(config.tensorboard.log_dir,
+                                                  config.name)
+    return config.tensorboard
+
+
 @on_rank_0
 def prep_logger_and_checkpoint(model):
     """
@@ -215,6 +222,7 @@ def parse_train_file(file):
     # If it's a .ckpt checkpoint file
     elif file.endswith('ckpt'):
         checkpoint = torch.load(file, map_location='cpu')
+        checkpoint['epoch'] += 1 # When continuing the training, increase the epoch by 1
         config = checkpoint.pop('config')
         checkpoint['file'] = file
         return config, checkpoint
@@ -281,6 +289,8 @@ def prepare_train_config(config):
     # Set name and checkpoint
     config.name = set_name(config)
     config.checkpoint = set_checkpoint(config)
+    # TensorBoard logging
+    config.tensorboard = set_tensorboard(config)
     # Return configuration
     return config
 

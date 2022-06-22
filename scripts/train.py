@@ -9,6 +9,7 @@ from packnet_sfm.utils.config import parse_train_file
 from packnet_sfm.utils.load import set_debug, filter_args_create
 from packnet_sfm.utils.horovod import hvd_init, rank
 from packnet_sfm.loggers import WandbLogger
+from packnet_sfm.loggers import TensorBoardLogger
 
 
 def parse_args():
@@ -44,6 +45,10 @@ def train(file):
     # Wandb Logger
     logger = None if config.wandb.dry_run or rank() > 0 \
         else filter_args_create(WandbLogger, config.wandb)
+    
+    # TensorBoard logger
+    logger = None if logger or config.tensorboard.log_dir is '' \
+        else filter_args_create(TensorBoardLogger, config.tensorboard)
 
     # model checkpoint
     checkpoint = None if config.checkpoint.filepath is '' or rank() > 0 else \

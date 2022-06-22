@@ -113,6 +113,7 @@ class SfmModel(BaseModel):
         output : dict
             Dictionary containing the output of depth and pose networks
         """
+        self._logs = {}
         # Generate inverse depth predictions
         depth_output = self.compute_depth_net(batch, force_flip=force_flip)
         # Generate pose predictions if available

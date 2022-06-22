@@ -2,7 +2,8 @@
 
 from functools import partial
 from packnet_sfm.datasets.augmentations import resize_image, resize_sample, resize_depth, \
-    duplicate_sample, colorjitter_sample, to_tensor_sample, crop_sample, crop_sample_input, resize_depth_preserve
+    duplicate_sample, colorjitter_sample, to_tensor_sample, crop_sample, crop_sample_input, \
+    resize_depth_preserve, resize_sample_image_and_intrinsics
 from packnet_sfm.utils.misc import parse_crop_borders
 
 ########################################################################################################################
@@ -60,7 +61,7 @@ def validation_transforms(sample, image_shape, crop_eval_borders):
         borders = parse_crop_borders(crop_eval_borders, sample['rgb'].size[::-1])
         sample = crop_sample_input(sample, borders)
     if len(image_shape) > 0:
-        sample['rgb'] = resize_image(sample['rgb'], image_shape)
+        sample = resize_sample_image_and_intrinsics(sample, image_shape)
         if 'input_depth' in sample:
             sample['input_depth'] = resize_depth_preserve(sample['input_depth'], image_shape)
     sample = to_tensor_sample(sample)
@@ -86,9 +87,9 @@ def test_transforms(sample, image_shape, crop_eval_borders):
         borders = parse_crop_borders(crop_eval_borders, sample['rgb'].size[::-1])
         sample = crop_sample_input(sample, borders)
     if len(image_shape) > 0:
-        sample['rgb'] = resize_image(sample['rgb'], image_shape)
+        sample = resize_sample_image_and_intrinsics(sample, image_shape)
         if 'input_depth' in sample:
-            sample['input_depth'] = resize_depth(sample['input_depth'], image_shape)
+            sample['input_depth'] = resize_depth_preserve(sample['input_depth'], image_shape)
     sample = to_tensor_sample(sample)
     return sample
 

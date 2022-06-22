@@ -20,10 +20,12 @@ class DepthResNet(nn.Module):
         X is the number of residual layers [18, 34, 50] and
         Y is an optional ImageNet pretrained flag added by the "pt" suffix
         Example: "18pt" initializes a pretrained ResNet18, and "34" initializes a ResNet34 from scratch
+    scale_output : bool
+        True if scaling the network output to [0.1, 100] units
     kwargs : dict
         Extra parameters
     """
-    def __init__(self, version=None, **kwargs):
+    def __init__(self, version=None, scale_output=True, **kwargs):
         super().__init__()
         assert version is not None, "DispResNet needs a version"
 
@@ -34,6 +36,7 @@ class DepthResNet(nn.Module):
         self.encoder = ResnetEncoder(num_layers=num_layers, pretrained=pretrained)
         self.decoder = DepthDecoder(num_ch_enc=self.encoder.num_ch_enc)
         self.scale_inv_depth = partial(disp_to_depth, min_depth=0.1, max_depth=100.0)
+        self.scale_output = scale_output
 
     def forward(self, rgb):
         """
@@ -46,11 +49,11 @@ class DepthResNet(nn.Module):
 
         if self.training:
             return {
-                'inv_depths': [self.scale_inv_depth(d)[0] for d in disps],
+                'inv_depths': [self.scale_inv_depth(d)[0] for d in disps] if self.scale_output else disps,
             }
         else:
             return {
-                'inv_depths': self.scale_inv_depth(disps[0])[0],
+                'inv_depths': [self.scale_inv_depth(disps[0])[0]] if self.scale_output else [disps[0]],
             }
 
 ########################################################################################################################

@@ -43,6 +43,10 @@ def test(ckpt_file, cfg_file, half):
     # Parse arguments
     config, state_dict = parse_test_file(ckpt_file, cfg_file)
 
+    # A temp fix for using pre-trained packnetsan checkpoint, there is a network name mismatch
+    if config.model.depth_net.name == 'PackNetSlimEnc01':
+        config.model.depth_net.name = 'PackNetSAN01'
+
     # Set debug if requested
     set_debug(config.debug)
 

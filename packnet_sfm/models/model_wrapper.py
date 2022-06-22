@@ -16,9 +16,10 @@ from packnet_sfm.utils.load import load_class, load_class_args_create, \
     load_network, filter_args
 from packnet_sfm.utils.logging import pcolor
 from packnet_sfm.utils.reduce import all_reduce_metrics, reduce_dict, \
-    create_dict, average_loss_and_metrics
+    create_dict, average_loss_and_metrics, create_dict_loss
 from packnet_sfm.utils.save import save_depth
 from packnet_sfm.models.model_utils import stack_batch
+from packnet_sfm.utils.misc import merge_dicts
 
 
 class ModelWrapper(torch.nn.Module):
@@ -47,6 +48,7 @@ class ModelWrapper(torch.nn.Module):
         self.metrics_name = 'depth'
         self.metrics_keys = ('abs_rel', 'sqr_rel', 'rmse', 'rmse_log', 'a1', 'a2', 'a3')
         self.metrics_modes = ('', '_pp', '_gt', '_pp_gt')
+        self.loss_name = 'photometric_loss'
 
         # Model, optimizers, schedulers and datasets are None for now
         self.model = self.optimizer = self.scheduler = None
@@ -65,6 +67,9 @@ class ModelWrapper(torch.nn.Module):
 
         # Preparations done
         self.config.prepared = True
+
+        # Return logs flag
+        self.return_logs = self.config.model.return_logs
 
     def prepare_model(self, resume=None):
         """Prepare self.model (incl. loading previous state)"""
@@ -183,7 +188,15 @@ class ModelWrapper(torch.nn.Module):
     def training_step(self, batch, *args):
         """Processes a training batch."""
         batch = stack_batch(batch)
-        output = self.model(batch, progress=self.progress)
+        output = self.model(batch, progress=self.progress, return_logs=self.return_logs)
+        if 'rgb_warped' in self.model.logs:
+            logs = self.model.logs
+            output['rgb_warped'] = logs['rgb_warped']
+            output['rgb_ref'] = logs['rgb_ref']
+            if self.logger:
+                self.logger.log_depth('train', batch, output, args,
+                                    self.train_dataset, world_size(),
+                                    self.config.datasets.train)
         return {
             'loss': output['loss'],
             'metrics': output['metrics']
@@ -206,7 +219,8 @@ class ModelWrapper(torch.nn.Module):
         output = self.evaluate_depth(batch)
         save_depth(batch, output, args,
                    self.config.datasets.test,
-                   self.config.save)
+                   self.config.save,
+                   self.config.model.params.scale_output)
         return {
             'idx': batch['idx'],
             **output['metrics'],
@@ -244,6 +258,26 @@ class ModelWrapper(torch.nn.Module):
         # Print stuff
         self.print_metrics(metrics_data, self.config.datasets.validation)
 
+        # Log additional loss
+        if self.loss_name in output_data_batch[0][0]:
+            # Reduce additional loss metrics
+            loss_data = all_reduce_metrics(
+                output_data_batch, self.validation_dataset, self.loss_name)
+            # Create loss dictionary
+            loss_dict = create_dict_loss(loss_data, self.config.datasets.validation)
+            # Merge
+            metrics_dict = merge_dicts([metrics_dict, loss_dict])
+
+            self.print_loss(loss_data, self.config.datasets.validation)
+
+        # Log fusion weights w and b (rgbd = w * rgb + b + d)
+        if 'depth_net.weight' in self.model.state_dict().keys():
+            for idx, val in enumerate(self.model.depth_net.weight):
+                metrics_dict['w_'+str(idx)] = val.item()
+        if 'depth_net.bias' in self.model.state_dict().keys():
+            for idx, val in enumerate(self.model.depth_net.bias):
+                metrics_dict['b_'+str(idx)] = val.item()
+
         # Log to wandb
         if self.logger:
             self.logger.log_metrics({
@@ -269,6 +303,18 @@ class ModelWrapper(torch.nn.Module):
         # Print stuff
         self.print_metrics(metrics_data, self.config.datasets.test)
 
+        # Log additional loss
+        if self.loss_name in output_data_batch[0][0]:
+            # Reduce additional loss metrics
+            loss_data = all_reduce_metrics(
+                output_data_batch, self.test_dataset, self.loss_name)
+            # Create loss dictionary
+            loss_dict = create_dict_loss(loss_data, self.config.datasets.test)
+            # Merge
+            metrics_dict = merge_dicts([metrics_dict, loss_dict])
+
+            self.print_loss(loss_data, self.config.datasets.test)
+
         return {
             **metrics_dict
         }
@@ -279,19 +325,20 @@ class ModelWrapper(torch.nn.Module):
         return self.model(*args, **kwargs)
 
     def depth(self, *args, **kwargs):
-        """Runs the pose network and returns the output."""
+        """Runs the depth network and returns the output."""
         assert self.depth_net is not None, 'Depth network not defined'
         return self.depth_net(*args, **kwargs)
 
     def pose(self, *args, **kwargs):
-        """Runs the depth network and returns the output."""
+        """Runs the pose network and returns the output."""
         assert self.pose_net is not None, 'Pose network not defined'
         return self.pose_net(*args, **kwargs)
 
     def evaluate_depth(self, batch):
         """Evaluate batch to produce depth metrics."""
+        output = self.model(batch, return_logs=self.return_logs)
         # Get predicted depth
-        inv_depths = self.model(batch)['inv_depths']
+        inv_depths = output['inv_depths']
         depth = inv2depth(inv_depths[0])
         # Post-process predicted depth
         batch['rgb'] = flip_lr(batch['rgb'])
@@ -310,11 +357,39 @@ class ModelWrapper(torch.nn.Module):
                     self.config.model.params, gt=batch['depth'],
                     pred=depth_pp if 'pp' in mode else depth,
                     use_gt_scale='gt' in mode)
+        if self.loss_name in output:
+            metrics[self.loss_name] = output[self.loss_name]
         # Return metrics and extra information
         return {
             'metrics': metrics,
             'inv_depth': inv_depth_pp
         }
+    
+    @on_rank_0
+    def print_loss(self, metrics_data, dataset):
+        if not metrics_data[0]:
+            return
+
+        hor_line = '|{:<}|'.format('*' * 93)
+        num_line = '{:<20} | {:<68.3f}'
+
+        def wrap(string):
+            return '| {} |'.format(string)
+
+        print()
+        
+        for n, metrics in enumerate(metrics_data):
+            print(hor_line)
+            path_line = '{}'.format(
+                os.path.join(dataset.path[n], dataset.split[n]))
+            print(wrap(pcolor('*** {:<87}'.format(path_line), 'magenta', attrs=['bold'])))
+            print(hor_line)
+            for key, metric in metrics.items():
+                if self.loss_name in key:
+                    print(wrap(pcolor(num_line.format(
+                        *((key.upper(),) + tuple(metric.tolist()))), 'cyan')))
+        print(hor_line)
+        print()
 
     @on_rank_0
     def print_metrics(self, metrics_data, dataset):
@@ -464,9 +539,20 @@ def setup_model(config, prepared, **kwargs):
     # Add pose network if required
     if 'pose_net' in model.network_requirements:
         model.add_pose_net(setup_pose_net(config.pose_net, prepared))
+    
+    # Print model parameter statistics
+    if config.print_n_params:
+        total_params = sum(p.numel() for p in model.parameters())
+        train_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        base_color, attrs = 'cyan', ['bold', 'dark']
+        color = 'green' if train_params == total_params else 'yellow' if train_params > 0 else 'red'
+        print0(pcolor('###### Total/Train params:', base_color, attrs=attrs) +
+            pcolor(' {}/{}'.format(total_params, train_params), color, attrs=attrs))
+    
     # If a checkpoint is provided, load pretrained model
     if not prepared and config.checkpoint_path is not '':
         model = load_network(model, config.checkpoint_path, 'model')
+
     # Return model
     return model
 
@@ -501,7 +587,8 @@ def setup_dataset(config, mode, requirements, **kwargs):
     dataset_args = {
         'back_context': config.back_context,
         'forward_context': config.forward_context,
-        'data_transform': get_transforms(mode, **kwargs)
+        'data_transform': get_transforms(mode, **kwargs),
+        'train': mode == 'train'
     }
 
     # Loop over all datasets
@@ -514,13 +601,14 @@ def setup_dataset(config, mode, requirements, **kwargs):
             'depth_type': config.depth_type[i] if 'gt_depth' in requirements else None,
             'input_depth_type': config.input_depth_type[i] if 'gt_depth' in requirements else None,
             'with_pose': 'gt_pose' in requirements,
+            'with_stereo': config.stereo_context
         }
 
         # KITTI dataset
         if config.dataset[i] == 'KITTI':
             from packnet_sfm.datasets.kitti_dataset import KITTIDataset
             dataset = KITTIDataset(
-                config.path[i], path_split,
+                config.path[i], path_split, config.batch_size, config.excluded_folder,
                 **dataset_args, **dataset_args_i,
             )
         # DGP dataset

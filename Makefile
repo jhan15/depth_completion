@@ -27,7 +27,8 @@ DOCKER_OPTS := \
 			-v ~/.aws:/root/.aws \
 			-v /root/.ssh:/root/.ssh \
 			-v ~/.cache:/root/.cache \
-			-v /data:/data \
+			-v /efs/shared/datasets:/data/datasets \
+			-v /efs/workspace/projects/save:/save \
 			-v /mnt/fsx/:/mnt/fsx \
 			-v /dev/null:/dev/raw1394 \
 			-v /tmp:/tmp \
@@ -58,8 +59,8 @@ MPI_CMD=mpirun \
 all: clean
 
 clean:
-	find . -name "*.pyc" | xargs rm -f && \
-	find . -name "__pycache__" | xargs rm -rf
+	find . -name "*.pyc" | xargs sudo rm -f && \
+	find . -name "__pycache__" | xargs sudo rm -rf
 
 docker-build:
 	docker build \

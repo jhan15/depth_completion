@@ -32,7 +32,7 @@ def load_depth(file):
         raise NotImplementedError('Depth extension not supported.')
 
 
-def write_depth(filename, depth, intrinsics=None):
+def write_depth(filename, depth, intrinsics=None, rgb=None, viz=None, depth_input=None):
     """
     Write a depth map to file, and optionally its corresponding intrinsics.
 
@@ -44,6 +44,10 @@ def write_depth(filename, depth, intrinsics=None):
         Depth map
     intrinsics : np.array [3,3]
         Optional camera intrinsics matrix
+    rgb : np.array [3,H,W]
+        Optional rgb image
+    viz : np.array [H,W]
+        Optional inverse depth map
     """
     # If depth is a tensor
     if is_tensor(depth):
@@ -53,7 +57,8 @@ def write_depth(filename, depth, intrinsics=None):
         intrinsics = intrinsics.detach().cpu()
     # If we are saving as a .npz
     if filename.endswith('.npz'):
-        np.savez_compressed(filename, depth=depth, intrinsics=intrinsics)
+        np.savez_compressed(filename, depth=depth, intrinsics=intrinsics,
+                            rgb=rgb, viz=viz, depth_input=depth_input)
     # If we are saving as a .png
     elif filename.endswith('.png'):
         depth = transforms.ToPILImage()((depth * 256).int())
@@ -64,7 +69,7 @@ def write_depth(filename, depth, intrinsics=None):
 
 
 def viz_inv_depth(inv_depth, normalizer=None, percentile=95,
-                  colormap='plasma', filter_zeros=False):
+                  colormap='plasma', filter_zeros=False, zero_to_nan=False):
     """
     Converts an inverse depth map to a colormap for visualization.
 
@@ -80,6 +85,8 @@ def viz_inv_depth(inv_depth, normalizer=None, percentile=95,
         Colormap to be used
     filter_zeros : bool
         If True, do not consider zero values during normalization
+    zero_to_nan: bool
+        True if change zero values to np.nan
 
     Returns
     -------
@@ -92,6 +99,8 @@ def viz_inv_depth(inv_depth, normalizer=None, percentile=95,
         if len(inv_depth.shape) == 3:
             inv_depth = inv_depth.squeeze(0)
         inv_depth = inv_depth.detach().cpu().numpy()
+    if zero_to_nan:
+        inv_depth[inv_depth == 0] = np.nan
     cm = get_cmap(colormap)
     if normalizer is None:
         normalizer = np.percentile(

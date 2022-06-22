@@ -115,12 +115,12 @@ class MultiViewPhotometricLoss(LossBase):
 
 ########################################################################################################################
 
-    @property
-    def logs(self):
-        """Returns class logs."""
-        return {
-            'num_scales': self.n,
-        }
+    # @property
+    # def logs(self):
+    #     """Returns class logs."""
+    #     return {
+    #         'num_scales': self.n,
+    #     }
 
 ########################################################################################################################
 
@@ -220,7 +220,7 @@ class MultiViewPhotometricLoss(LossBase):
                 photometric_loss[i] = torch.clamp(
                     photometric_loss[i], max=float(mean + self.clip_loss * std))
         # Return total photometric loss
-        return photometric_loss
+        return photometric_loss, ssim_loss
 
     def reduce_photometric_loss(self, photometric_losses):
         """
@@ -285,7 +285,7 @@ class MultiViewPhotometricLoss(LossBase):
 ########################################################################################################################
 
     def forward(self, image, context, inv_depths,
-                K, ref_K, poses, return_logs=False, progress=0.0):
+                K, ref_K, poses, eval_mode=False, return_logs=False, progress=0.0):
         """
         Calculates training photometric loss.
 
@@ -299,10 +299,12 @@ class MultiViewPhotometricLoss(LossBase):
             Predicted depth maps for the original image, in all scales
         K : torch.Tensor [B,3,3]
             Original camera intrinsics
-        ref_K : torch.Tensor [B,3,3]
-            Reference camera intrinsics
+        ref_K : list of torch.Tensor [B,3,3]
+            List of reference camera intrinsics
         poses : list of Pose
             Camera transformation between original and context
+        eval_mode : bool
+            True if evaluation mode
         return_logs : bool
             True if logs are saved for visualization
         progress : float
@@ -315,21 +317,28 @@ class MultiViewPhotometricLoss(LossBase):
         """
         # If using progressive scaling
         self.n = self.progressive_scaling(progress)
+        # One scale for evaluation
+        self.n = 1 if eval_mode else self.n
         # Loop over all reference images
         photometric_losses = [[] for _ in range(self.n)]
+        warped_images = [[] for _ in range(len(poses))]
         images = match_scales(image, inv_depths, self.n)
-        for j, (ref_image, pose) in enumerate(zip(context, poses)):
+        ssim_images = [[] for _ in range(len(poses))]
+        for j, (ref_image, pose, ref_Ki) in enumerate(zip(context, poses, ref_K)):
             # Calculate warped images
-            ref_warped = self.warp_ref_image(inv_depths, ref_image, K, ref_K, pose)
+            ref_warped = self.warp_ref_image(inv_depths, ref_image, K, ref_Ki, pose)
             # Calculate and store image loss
-            photometric_loss = self.calc_photometric_loss(ref_warped, images)
+            photometric_loss, ssim = self.calc_photometric_loss(ref_warped, images)
+            if return_logs:
+                warped_images[j] = [w.detach() for w in ref_warped]
+                ssim_images[j] = [s.detach() for s in ssim]
             for i in range(self.n):
                 photometric_losses[i].append(photometric_loss[i])
             # If using automask
             if self.automask_loss:
                 # Calculate and store unwarped image loss
                 ref_images = match_scales(ref_image, inv_depths, self.n)
-                unwarped_image_loss = self.calc_photometric_loss(ref_images, images)
+                unwarped_image_loss, _ = self.calc_photometric_loss(ref_images, images)
                 for i in range(self.n):
                     photometric_losses[i].append(unwarped_image_loss[i])
         # Calculate reduced photometric loss
@@ -337,6 +346,11 @@ class MultiViewPhotometricLoss(LossBase):
         # Include smoothness loss if requested
         if self.smooth_loss_weight > 0.0:
             loss += self.calc_smoothness_loss(inv_depths, images)
+        if return_logs:
+            self.add_log('num_scales', self.n)
+            self.add_log('rgb_warped', warped_images)
+            self.add_log('rgb_ref', context)
+            self.add_log('ssim', ssim_images)
         # Return losses and metrics
         return {
             'loss': loss.unsqueeze(0),

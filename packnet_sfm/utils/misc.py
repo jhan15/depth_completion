@@ -22,6 +22,28 @@ def filter_dict(dictionary, keywords):
     """
     return [key for key in keywords if key in dictionary]
 
+def merge_dicts(dicts):
+    """
+    Merge several dictionaries
+
+    Parameters
+    ----------
+    dicts : list of dictionary
+        List containing the dictionaries to be merged
+
+    Returns
+    -------
+    merged_dict : dictionary
+        Merged dictionary
+    """
+    merged_dict = {}
+    for d in dicts:
+        for key, val in d.items():
+            assert key not in merged_dict, 'Duplicated key'
+            merged_dict[key] = val
+    
+    return merged_dict
+
 ########################################################################################################################
 
 def make_list(var, n=None):

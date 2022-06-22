@@ -151,6 +151,34 @@ def create_dict(metrics_data, metrics_keys, metrics_modes,
     # Return metrics dictionary
     return metrics_dict
 
+def create_dict_loss(metrics_data, dataset, name='photometric_loss'):
+    """
+    Creates a dictionary from collated loss metrics
+
+    Parameters
+    ----------
+    metrics_data : list
+        List containing collated loss metrics
+    dataset : CfgNode
+        Dataset configuration file
+    name : str
+        Name of the task for the metric
+
+    Returns
+    -------
+    metrics_dict : dict
+        Metrics dictionary
+    """
+    # Create metrics dictionary
+    metrics_dict = {}
+    # For all datasets
+    for n, metrics in enumerate(metrics_data):
+        if metrics: # If there are calculated metrics
+            prefix = prepare_dataset_prefix(dataset, n)
+            metrics_dict['{}-{}'.format(prefix, name)] = metrics[name].item()
+    # Return metrics dictionary
+    return metrics_dict
+
 ########################################################################################################################
 
 def average_key(batch_list, key):
