@@ -1,0 +1,10 @@
+save:
+    folder: '/save/eval'
+    depth:
+        rgb: False
+        viz: True
+        npz: False
+        png: False
+        dgt: False
+        dem: False
+        pem: False

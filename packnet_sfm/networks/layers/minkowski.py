@@ -52,7 +52,7 @@ def sparsify_depth(x):
     coords = [uv[idx] for idx in idxs]
     feats = [feats.permute(1, 2, 0)[idx] for idx, feats in zip(idxs, x)]
     coords, feats = ME.utils.sparse_collate(coords=coords, feats=feats)
-    return ME.SparseTensor(coordinates=coords, features=feats, device=x.device)
+    return ME.SparseTensor(coordinates=coords, features=feats, device=x.device, requires_grad=True)
 
 
 def densify_features(x, shape):

@@ -32,7 +32,7 @@ class DepthResNetSAN(nn.Module):
         Extra parameters
     """
     def __init__(self, version=None, grad_image_encoder=True, grad_image_decoder=True,
-                grad_depth_encoder=True, scale_output=True, **kwargs):
+                 grad_depth_encoder=True, scale_output=True, adjust_depth=False, **kwargs):
         super().__init__()
         assert version is not None, "DispResNet needs a version"
 
@@ -60,6 +60,10 @@ class DepthResNetSAN(nn.Module):
         self.bias = nn.parameter.Parameter(torch.zeros(5), requires_grad=grad_depth_encoder)
 
         self.scale_output = scale_output
+
+        self.pose = None
+        if adjust_depth:
+            self.pose = nn.parameter.Parameter(torch.zeros(6), requires_grad=True)
 
         # No weight initialization for SAN in PackNetSAN
         # TODO: Compare w/ and w/o weight initialization for SAN

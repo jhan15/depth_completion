@@ -1,0 +1,65 @@
+checkpoint:
+    filepath: '/save/checkpoints'
+    save_top_k: 10
+    monitor: 'abs_rel_pp'
+    mode: 'min'
+tensorboard:
+    log_dir: '/save/logs'
+arch:
+    max_epochs: 50
+    validate_first: True
+model:
+    name: 'SemiSupCompletionModel'
+    checkpoint_path: '/save/models/sparse_resnet_scania_lr.ckpt'
+    loss:
+        supervised_method: 'sparse-silog'
+        supervised_num_scales: 1
+        supervised_loss_weight: 1.0
+        eval_self_sup_loss: False
+    optimizer:
+        name: 'AdamW'
+        depth:
+            lr: 0.0001
+            weight_decay: 0.01
+    scheduler:
+        name: 'StepLR'
+        step_size: 10
+        gamma: 0.5
+    depth_net:
+        name: 'DepthResNetSAN'
+        version: '18pt'
+        grad_image_encoder: False
+        dropout: 0.5
+    params:
+        crop: 'garg'
+        min_depth: 0.0
+        max_depth: 80.0
+datasets:
+    augmentation:
+        crop_train_borders: (0.5, 640, 0, 1280)
+        crop_eval_borders: (0.5, 640, 0, 1280)
+        image_shape: (256, 512)
+    train:
+        batch_size: 16
+        dataset: ['Scania']
+        path: ['/data/datasets/depth_completion']
+        split: ['train.txt']
+        input_depth_type: ['depth']
+        depth_type: ['depth']
+    validation:
+        back_context: 1
+        forward_context: 1
+        dataset: ['Scania']
+        path: ['/data/datasets/depth_completion']
+        split: ['val.txt','val.txt','test.txt','test.txt']
+        input_depth_type: ['depth','','depth','']
+        depth_type: ['depth','depth','depth','depth']
+    test:
+        back_context: 1
+        forward_context: 1
+        stereo_context: True
+        dataset: ['Scania']
+        path: ['/data/datasets/depth_completion']
+        split: ['test.txt','test.txt']
+        input_depth_type: ['depth','']
+        depth_type: ['depth','depth']

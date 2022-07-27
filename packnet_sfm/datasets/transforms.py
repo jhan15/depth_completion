@@ -32,7 +32,11 @@ def train_transforms(sample, image_shape, jittering, crop_train_borders):
         borders = parse_crop_borders(crop_train_borders, sample['rgb'].size[::-1])
         sample = crop_sample(sample, borders)
     if len(image_shape) > 0:
-        sample = resize_sample(sample, image_shape)
+        sample = resize_sample_image_and_intrinsics(sample, image_shape)
+        if 'input_depth' in sample:
+            sample['input_depth'] = resize_depth_preserve(sample['input_depth'], image_shape)
+        if 'depth' in sample:
+            sample['depth'] = resize_depth_preserve(sample['depth'], image_shape)
     sample = duplicate_sample(sample)
     if len(jittering) > 0:
         sample = colorjitter_sample(sample, jittering)
@@ -59,11 +63,13 @@ def validation_transforms(sample, image_shape, crop_eval_borders):
     """
     if len(crop_eval_borders) > 0:
         borders = parse_crop_borders(crop_eval_borders, sample['rgb'].size[::-1])
-        sample = crop_sample_input(sample, borders)
+        sample = crop_sample(sample, borders)
     if len(image_shape) > 0:
         sample = resize_sample_image_and_intrinsics(sample, image_shape)
         if 'input_depth' in sample:
             sample['input_depth'] = resize_depth_preserve(sample['input_depth'], image_shape)
+        if 'depth' in sample:
+            sample['depth'] = resize_depth_preserve(sample['depth'], image_shape)
     sample = to_tensor_sample(sample)
     return sample
 
@@ -85,11 +91,13 @@ def test_transforms(sample, image_shape, crop_eval_borders):
     """
     if len(crop_eval_borders) > 0:
         borders = parse_crop_borders(crop_eval_borders, sample['rgb'].size[::-1])
-        sample = crop_sample_input(sample, borders)
+        sample = crop_sample(sample, borders)
     if len(image_shape) > 0:
         sample = resize_sample_image_and_intrinsics(sample, image_shape)
         if 'input_depth' in sample:
             sample['input_depth'] = resize_depth_preserve(sample['input_depth'], image_shape)
+        if 'depth' in sample:
+            sample['depth'] = resize_depth_preserve(sample['depth'], image_shape)
     sample = to_tensor_sample(sample)
     return sample
 

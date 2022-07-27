@@ -77,14 +77,14 @@ def save_depth(batch, output, args, dataset, save, scale_fn):
                 write_image('{}/{}_rgb.png'.format(save_path, filename[i]), rgb_i)
             # Save inverse depth visualizations
             if save.depth.viz:
-                viz_i = viz_inv_depth(pred_inv_depth[i], colormap='hsv') * 255
+                viz_i = viz_inv_depth(pred_inv_depth[i], colormap='hsv', normalizer=0.17) * 255
                 write_image('{}/{}_viz.png'.format(save_path, filename[i]), viz_i)
 
             # Save depth gt
             if is_tensor(depth_gt) and save.depth.dgt:
                 inv_i = 1. / depth_gt[i]
                 inv_i[depth_gt[i] <= 0] = 0
-                viz_i = viz_inv_depth(inv_i, filter_zeros=True, zero_to_nan=True, colormap='hsv') * 255
+                viz_i = viz_inv_depth(inv_i, filter_zeros=True, zero_to_nan=True, colormap='hsv', normalizer=0.17) * 255
                 # viz_i[np.where((viz_i==[0,0,0]).all(axis=2))] = [255,255,255]
                 write_image('{}/{}_depth_gt.png'.format(save_path, filename[i]), viz_i)
 

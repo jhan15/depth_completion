@@ -1,6 +1,7 @@
 # Copyright 2020 Toyota Research Institute.  All rights reserved.
 
 import torch.nn as nn
+import torch
 from functools import partial
 
 from packnet_sfm.networks.layers.resnet.resnet_encoder import ResnetEncoder
@@ -25,7 +26,7 @@ class DepthResNet(nn.Module):
     kwargs : dict
         Extra parameters
     """
-    def __init__(self, version=None, scale_output=True, **kwargs):
+    def __init__(self, version=None, scale_output=True, adjust_depth=False, **kwargs):
         super().__init__()
         assert version is not None, "DispResNet needs a version"
 
@@ -37,6 +38,10 @@ class DepthResNet(nn.Module):
         self.decoder = DepthDecoder(num_ch_enc=self.encoder.num_ch_enc)
         self.scale_inv_depth = partial(disp_to_depth, min_depth=0.1, max_depth=100.0)
         self.scale_output = scale_output
+
+        self.pose = None
+        if adjust_depth:
+            self.pose = nn.parameter.Parameter(torch.zeros(6), requires_grad=True)
 
     def forward(self, rgb):
         """

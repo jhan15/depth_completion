@@ -229,10 +229,12 @@ def log_depth(key, prefix, batch, i=0):
         Wandb image ready for logging
     """
     depth = batch[key] if is_dict(batch) else batch
+    image = batch['rgb'][i].permute(1, 2, 0).detach().cpu().numpy()
     inv_depth = 1. / depth[i]
     inv_depth[depth[i] == 0] = 0
-    return prep_image(prefix, key,
-                      viz_inv_depth(inv_depth, filter_zeros=True))
+    viz = viz_inv_depth(inv_depth, normalizer=0.17, filter_zeros=True, zero_to_nan=True)
+    viz[np.where((viz==[0,0,0]).all(axis=2))] = image[np.where((viz==[0,0,0]).all(axis=2))]
+    return prep_image(prefix, key, viz)
 
 
 def log_inv_depth(key, prefix, batch, i=0):
@@ -257,7 +259,7 @@ def log_inv_depth(key, prefix, batch, i=0):
     """
     inv_depth = batch[key] if is_dict(batch) else batch
     return prep_image(prefix, key,
-                      viz_inv_depth(inv_depth[i]))
+                      viz_inv_depth(inv_depth[i], normalizer=0.17))
 
 
 def prep_image(prefix, key, image):

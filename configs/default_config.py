@@ -133,6 +133,7 @@ cfg.model.depth_net.grad_image_decoder = True   # Requires grad flag of image de
 cfg.model.depth_net.grad_depth_encoder = True   # Requires grad flag of depth encoder
 cfg.model.depth_net.scale_output = True         # Scale the inverse depth output
 cfg.model.depth_net.dropout = 0.0               # Depth network dropout
+cfg.model.depth_net.adjust_depth = False        # Adjust depth with a learnt transformation matrix
 ########################################################################################################################
 ### MODEL.POSE_NET
 ########################################################################################################################

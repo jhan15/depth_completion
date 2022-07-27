@@ -3,10 +3,12 @@
 import numpy as np
 import torch
 import torchvision.transforms as transforms
+import MinkowskiEngine as ME
 from matplotlib.cm import get_cmap
 
 from packnet_sfm.utils.image import load_image, gradient_x, gradient_y, flip_lr, interpolate_image
 from packnet_sfm.utils.types import is_seq, is_tensor
+from packnet_sfm.geometry.pose import Pose
 
 
 def load_depth(file):
@@ -69,7 +71,7 @@ def write_depth(filename, depth, intrinsics=None, rgb=None, viz=None, depth_inpu
 
 
 def viz_inv_depth(inv_depth, normalizer=None, percentile=95,
-                  colormap='plasma', filter_zeros=False, zero_to_nan=False):
+                  colormap='hsv', filter_zeros=False, zero_to_nan=False):
     """
     Converts an inverse depth map to a colormap for visualization.
 
@@ -367,3 +369,60 @@ def scale_depth(pred, gt, scale_fn):
             raise NotImplementedError('Depth scale function {} not implemented.'.format(scale_fn))
         # Return uncropped depth map
         return pred_uncropped
+
+
+def transform_depth(depth, K, pose_vec):
+    """
+    Adjust depth with a transformation matrix
+
+    Parameters
+    ----------
+    depth : torch.Tensor
+        Depth maps [B,1,H,W]
+    K: torch.Tensor
+        Camera intrinsics [B,3,3]
+    pose_vec : torch.tensor
+        Axisangle + translation [6]
+
+    Returns
+    -------
+    depth_adj : torch.tensor
+        Adjusted depth maps [B,1,H,W]
+    """
+    b, c, h, w = depth.shape
+
+    u = torch.arange(w, device=depth.device).reshape(1, w).repeat([h, 1])
+    v = torch.arange(h, device=depth.device).reshape(h, 1).repeat([1, w])
+    uv = torch.stack([v, u], 2)
+
+    idxs = [(d > 0)[0] for d in depth]
+
+    coords = [uv[idx] for idx in idxs]
+    feats = [feats.permute(1, 2, 0)[idx] for idx, feats in zip(idxs, depth)]
+    coords, feats = ME.utils.sparse_collate(coords=coords, feats=feats)
+    
+    points = torch.column_stack((coords, feats))
+    pose = Pose.from_vec(pose_vec.reshape(1,-1), 'euler')
+    
+    # Reconstruct 3d points, adjust by transformation matrix, and project to image plane
+    reco = torch.column_stack((points[:,1:3] * points[:,3].reshape(-1,1), points[:,3])) \
+        @ torch.linalg.inv(K[0].T)
+
+    reco_adj = reco @ pose.mat[0,:3,:3].T + pose.mat[0,:3,3]
+    proj_adj = reco_adj @ K[0].T / reco_adj[:,2].reshape(-1,1)
+    
+    points_adj = torch.clone(points)
+    points_adj[:,1:3] = torch.round(proj_adj[:,:2])
+    points_adj[:,3] = reco_adj[:,2]
+
+    # Remove points outside image plane
+    points_fil = points_adj[(points_adj[:,1]<h) & (points_adj[:,1]>=0) & \
+        (points_adj[:,2]<w) & (points_adj[:,2]>=0) & (points_adj[:,3]>0)]
+    coords = points_fil[:,:3].to(torch.long)
+    feats = points_fil[:,3].reshape(-1,1)
+
+    # Transform to lidar image
+    depth_adj = torch.zeros((b, h, w, c), device=depth.device)
+    depth_adj[coords[:, 0], coords[:, 1], coords[:, 2]] = feats
+
+    return depth_adj.permute(0, 3, 1, 2).contiguous()

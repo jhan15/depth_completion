@@ -9,7 +9,8 @@ import torch
 from torch.utils.data import ConcatDataset, DataLoader
 
 from packnet_sfm.datasets.transforms import get_transforms
-from packnet_sfm.utils.depth import inv2depth, post_process_inv_depth, compute_depth_metrics
+from packnet_sfm.utils.depth import inv2depth, post_process_inv_depth, \
+    compute_depth_metrics, transform_depth
 from packnet_sfm.utils.horovod import print0, world_size, rank, on_rank_0
 from packnet_sfm.utils.image import flip_lr
 from packnet_sfm.utils.load import load_class, load_class_args_create, \
@@ -20,6 +21,7 @@ from packnet_sfm.utils.reduce import all_reduce_metrics, reduce_dict, \
 from packnet_sfm.utils.save import save_depth
 from packnet_sfm.models.model_utils import stack_batch
 from packnet_sfm.utils.misc import merge_dicts
+from packnet_sfm.geometry.pose import Pose
 
 
 class ModelWrapper(torch.nn.Module):
@@ -188,6 +190,19 @@ class ModelWrapper(torch.nn.Module):
     def training_step(self, batch, *args):
         """Processes a training batch."""
         batch = stack_batch(batch)
+        # Adjust lidar using the learnt transformation matrix
+        if self.config.model.depth_net.adjust_depth and 'input_depth' in batch:
+            batch['input_depth'] = transform_depth(
+                batch['input_depth'],
+                batch['intrinsics'],
+                self.model.depth_net.pose
+            )
+        if self.config.model.depth_net.adjust_depth and 'depth' in batch:
+            batch['depth'] = transform_depth(
+                batch['depth'],
+                batch['intrinsics'],
+                self.model.depth_net.pose
+            )
         output = self.model(batch, progress=self.progress, return_logs=self.return_logs)
         if 'rgb_warped' in self.model.logs:
             logs = self.model.logs
@@ -204,6 +219,18 @@ class ModelWrapper(torch.nn.Module):
 
     def validation_step(self, batch, *args):
         """Processes a validation batch."""
+        if self.config.model.depth_net.adjust_depth and 'input_depth' in batch:
+            batch['input_depth'] = transform_depth(
+                batch['input_depth'],
+                batch['intrinsics'],
+                self.model.depth_net.pose
+            )
+        if self.config.model.depth_net.adjust_depth and 'depth' in batch:
+            batch['depth'] = transform_depth(
+                batch['depth'],
+                batch['intrinsics'],
+                self.model.depth_net.pose
+            )
         output = self.evaluate_depth(batch)
         if self.logger:
             self.logger.log_depth('val', batch, output, args,
@@ -216,6 +243,18 @@ class ModelWrapper(torch.nn.Module):
 
     def test_step(self, batch, *args):
         """Processes a test batch."""
+        if self.config.model.depth_net.adjust_depth and 'input_depth' in batch:
+            batch['input_depth'] = transform_depth(
+                batch['input_depth'],
+                batch['intrinsics'],
+                self.model.depth_net.pose,
+            )
+        if self.config.model.depth_net.adjust_depth and 'depth' in batch:
+            batch['depth'] = transform_depth(
+                batch['depth'],
+                batch['intrinsics'],
+                self.model.depth_net.pose
+            )
         output = self.evaluate_depth(batch)
         save_depth(batch, output, args,
                    self.config.datasets.test,
@@ -245,6 +284,10 @@ class ModelWrapper(torch.nn.Module):
 
     def validation_epoch_end(self, output_data_batch):
         """Finishes a validation epoch."""
+
+        print()
+        print(self.model.depth_net.pose)
+        print(Pose.from_vec(self.model.depth_net.pose.reshape(1,-1), 'euler').mat)
 
         # Reduce depth metrics
         metrics_data = all_reduce_metrics(
@@ -604,8 +647,16 @@ def setup_dataset(config, mode, requirements, **kwargs):
             'with_stereo': config.stereo_context
         }
 
+        # Scania dataset
+        if config.dataset[i] == 'Scania':
+            from packnet_sfm.datasets.scania_dataset import ScaniaDataset
+            dataset = ScaniaDataset(
+                config.path[i], path_split, config.batch_size, config.excluded_folder,
+                **dataset_args, **dataset_args_i,
+            )
+
         # KITTI dataset
-        if config.dataset[i] == 'KITTI':
+        elif config.dataset[i] == 'KITTI':
             from packnet_sfm.datasets.kitti_dataset import KITTIDataset
             dataset = KITTIDataset(
                 config.path[i], path_split, config.batch_size, config.excluded_folder,
