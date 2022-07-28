@@ -48,3 +48,20 @@ $ /usr/local/cuda/extras/demo_suite/deviceQuery
 $ cd depth_completion
 $ make docker-build
 ```
+
+## Training
+
+```bash
+$ cd depth_completion
+$ make docker-start-interactive
+$ python scripts/train.py configs/xxx.yaml
+```
+
+#### Two-stage training
+
+```bash
+# Stage 1 (w/o SAN)
+$ python scripts/train.py configs/train_sparse+self_m_resnet_scania_lr.yaml
+# Stage 2 (w/ SAN, update the value of checkpoint_path with a pre-trained model from stage 1)
+$ python scripts/train.py configs/train_sparse+self_m_resnet_san_scania_lr.yaml
+```
