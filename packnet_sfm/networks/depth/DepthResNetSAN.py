@@ -28,6 +28,8 @@ class DepthResNetSAN(nn.Module):
         Requires grad for depth encoder or not
     scale_output : bool
         True if scaling the network output to [0.1, 100] units
+    adjust_depth : bool
+        True if adjust the lidar data by a transformation matrix
     kwargs : dict
         Extra parameters
     """
@@ -61,6 +63,7 @@ class DepthResNetSAN(nn.Module):
 
         self.scale_output = scale_output
 
+        # Learnable transformation matrix: translation + axisangle
         self.pose = None
         if adjust_depth:
             self.pose = nn.parameter.Parameter(torch.zeros(6), requires_grad=True)
@@ -122,7 +125,7 @@ class DepthResNetSAN(nn.Module):
         inv_depths_rgbd, features_rgbd = self.run_network(rgb, input_depth)
         output['inv_depths_rgbd'] = inv_depths_rgbd
 
-        loss = sum([((srgbd.detach() - srgb) ** 2).mean()
+        loss = sum([((srgbd - srgb) ** 2).mean()
                     for srgbd, srgb in zip(features_rgbd, features_rgb)]) / len(features_rgbd)
         output['depth_loss'] = loss
 

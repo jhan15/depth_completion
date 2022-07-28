@@ -382,7 +382,7 @@ def transform_depth(depth, K, pose_vec):
     K: torch.Tensor
         Camera intrinsics [B,3,3]
     pose_vec : torch.tensor
-        Axisangle + translation [6]
+        Translation + axisangle [6]
 
     Returns
     -------

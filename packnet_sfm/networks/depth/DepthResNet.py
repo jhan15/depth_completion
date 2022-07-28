@@ -23,6 +23,8 @@ class DepthResNet(nn.Module):
         Example: "18pt" initializes a pretrained ResNet18, and "34" initializes a ResNet34 from scratch
     scale_output : bool
         True if scaling the network output to [0.1, 100] units
+    adjust_depth : bool
+        True if adjust the lidar data by a transformation matrix
     kwargs : dict
         Extra parameters
     """
@@ -39,6 +41,7 @@ class DepthResNet(nn.Module):
         self.scale_inv_depth = partial(disp_to_depth, min_depth=0.1, max_depth=100.0)
         self.scale_output = scale_output
 
+        # Learnable transformation matrix: translation + axisangle
         self.pose = None
         if adjust_depth:
             self.pose = nn.parameter.Parameter(torch.zeros(6), requires_grad=True)
